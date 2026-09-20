@@ -50,7 +50,9 @@ def list_shopping_lists() -> dict[str, Any]:
 
 @mcp.tool(annotations={"readOnlyHint": True})
 @requires_scope(SCOPE_READ)
-def get_shopping_list(list_id_or_name: str | None = None, include_checked: bool = False) -> dict[str, Any]:
+def get_shopping_list(
+    list_id_or_name: str | None = None, include_checked: bool = False
+) -> dict[str, Any]:
     """Items on a shopping list (open items only unless `include_checked`).
     Omit the list when the household has just one."""
     client = get_client()
@@ -103,7 +105,13 @@ def add_shopping_items(items: list[str], list_id_or_name: str | None = None) -> 
         raise ValueError("At most 100 items per call.")
     existing = len(lst.get("listItems") or [])
     payload = [
-        {"shoppingListId": lst["id"], "note": ln, "quantity": 0, "position": existing + n, "checked": False}
+        {
+            "shoppingListId": lst["id"],
+            "note": ln,
+            "quantity": 0,
+            "position": existing + n,
+            "checked": False,
+        }
         for n, ln in enumerate(lines)
     ]
     client.create_shopping_items(payload)

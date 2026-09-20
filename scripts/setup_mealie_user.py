@@ -14,7 +14,7 @@ Environment:
 Example (Phase):
     phase run --app homelab --env Production -- \
         python3 scripts/setup_mealie_user.py --password-env MEALIE_APIADMIN_PASSWORD \
-        --store 'phase secrets create {name} --app homelab --env Production'
+        --phase-app homelab
 """
 
 from __future__ import annotations
@@ -75,23 +75,33 @@ def store(template: str | None, name: str, value: str, do_print: bool) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--password-env", required=True, help="env var holding the admin password")
     ap.add_argument("--username", default="mcp")
     ap.add_argument("--email", default="mcp@mealie.local")
     ap.add_argument("--full-name", default="MCP (AI assistant)")
     ap.add_argument("--token-name", default="mealie-mcp")
     ap.add_argument("--store", help="command template, {name} = secret name; value on stdin")
+    ap.add_argument(
+        "--phase-app", help="shortcut: store via `phase secrets create` in this Phase app"
+    )
+    ap.add_argument("--phase-env", default="Production")
     ap.add_argument("--print", action="store_true", help="print secrets to stdout instead")
     ap.add_argument("--password-secret", default="MEALIE_MCP_PASSWORD")
     ap.add_argument("--token-secret", default="MEALIE_MCP_TOKEN")
     args = ap.parse_args()
+    if args.phase_app and not args.store:
+        args.store = f"phase secrets create {{name}} --app {args.phase_app} --env {args.phase_env}"
 
     base = os.environ.get("MEALIE_URL", "http://127.0.0.1:9000").rstrip("/")
     admin_user = os.environ.get("MEALIE_ADMIN_USER") or sys.exit("✗ MEALIE_ADMIN_USER unset")
     admin_pw = os.environ.get(args.password_env) or sys.exit(f"✗ {args.password_env} unset")
 
-    admin_tok = req(base, "POST", "/api/auth/token", {"username": admin_user, "password": admin_pw}, form=True)["access_token"]
+    admin_tok = req(
+        base, "POST", "/api/auth/token", {"username": admin_user, "password": admin_pw}, form=True
+    )["access_token"]
     me = req(base, "GET", "/api/users/self", token=admin_tok)
     print(f"admin login ok: {me['username']} group={me['group']} household={me['household']}")
 
@@ -103,37 +113,69 @@ def main() -> None:
         if existing["admin"]:
             sys.exit("✗ refusing: the MCP user must not be an admin")
         # Admin PUT does not re-hash passwords; use the reset-token flow instead.
-        reset = req(base, "POST", "/api/admin/users/password-reset-token", token=admin_tok,
-                    data={"email": existing["email"]})
-        req(base, "POST", "/api/users/reset-password", data={
-            "token": reset["token"], "email": existing["email"],
-            "password": password, "passwordConfirm": password,
-        })
+        reset = req(
+            base,
+            "POST",
+            "/api/admin/users/password-reset-token",
+            token=admin_tok,
+            data={"email": existing["email"]},
+        )
+        req(
+            base,
+            "POST",
+            "/api/users/reset-password",
+            data={
+                "token": reset["token"],
+                "email": existing["email"],
+                "password": password,
+                "passwordConfirm": password,
+            },
+        )
     else:
-        created = req(base, "POST", "/api/admin/users", token=admin_tok, data={
-            "username": args.username,
-            "fullName": args.full_name,
-            "email": args.email,
-            "password": password,
-            "group": me["group"],
-            "household": me["household"],
-            "admin": False,
-            "canInvite": False,
-            "canManage": False,
-            "canOrganize": True,
-            "advanced": False,
-            "authMethod": "Mealie",
-        })
-        print(f"created user {created['username']} (id {created['id']}) in group={created['group']} household={created['household']}")
+        created = req(
+            base,
+            "POST",
+            "/api/admin/users",
+            token=admin_tok,
+            data={
+                "username": args.username,
+                "fullName": args.full_name,
+                "email": args.email,
+                "password": password,
+                "group": me["group"],
+                "household": me["household"],
+                "admin": False,
+                "canInvite": False,
+                "canManage": False,
+                "canOrganize": True,
+                "advanced": False,
+                "authMethod": "Mealie",
+            },
+        )
+        print(
+            f"created user {created['username']} (id {created['id']}) in group={created['group']} household={created['household']}"
+        )
 
-    user_tok = req(base, "POST", "/api/auth/token", {"username": args.username, "password": password}, form=True)["access_token"]
+    user_tok = req(
+        base,
+        "POST",
+        "/api/auth/token",
+        {"username": args.username, "password": password},
+        form=True,
+    )["access_token"]
     who = req(base, "GET", "/api/users/self", token=user_tok)
     assert not who["admin"], "new user unexpectedly admin"
     for t in who.get("tokens") or []:
         if t["name"] == args.token_name:
             req(base, "DELETE", f"/api/users/api-tokens/{t['id']}", token=user_tok)
             print(f"  removed old API token {args.token_name!r}")
-    tok = req(base, "POST", "/api/users/api-tokens", token=user_tok, data={"name": args.token_name, "integrationId": "mealie-mcp"})
+    tok = req(
+        base,
+        "POST",
+        "/api/users/api-tokens",
+        token=user_tok,
+        data={"name": args.token_name, "integrationId": "mealie-mcp"},
+    )
     api_token = tok["token"]
     check = req(base, "GET", "/api/users/self", token=api_token)
     print(f"API token works as {check['username']} (admin={check['admin']})")

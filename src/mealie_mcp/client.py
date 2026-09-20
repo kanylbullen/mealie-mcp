@@ -6,6 +6,9 @@ One client, one Mealie API token. Configuration (environment):
     MEALIE_TOKEN        long-lived API token (Mealie: user menu -> API tokens).
                         Use a dedicated non-admin user: everything this server
                         does is attributed to it in Mealie.
+    MEALIE_TOKEN_ENV    optional indirection: name of another variable that
+                        holds the token (e.g. MEALIE_MCP_TOKEN as stored in a
+                        vault), so no shell needs to copy secrets between names
     MEALIE_PUBLIC_URL   optional; the URL humans open in a browser, used for
                         links in tool results (defaults to MEALIE_URL)
     MEALIE_TIMEOUT      seconds per request (default 30). URL imports get 3x
@@ -70,9 +73,13 @@ class MealieClient:
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> MealieClient:
         src = os.environ if env is None else env
+        token = (src.get("MEALIE_TOKEN") or "").strip()
+        indirect = (src.get("MEALIE_TOKEN_ENV") or "").strip()
+        if not token and indirect:
+            token = (src.get(indirect) or "").strip()
         return cls(
             (src.get("MEALIE_URL") or "").strip(),
-            (src.get("MEALIE_TOKEN") or "").strip(),
+            token,
             public_url=(src.get("MEALIE_PUBLIC_URL") or "").strip() or None,
             timeout=float(src.get("MEALIE_TIMEOUT") or 30),
         )
@@ -183,7 +190,9 @@ class MealieClient:
     def patch_recipe(self, slug: str, fields: dict[str, Any]) -> dict[str, Any]:
         return self.request("PATCH", f"/api/recipes/{slug}", json=fields)
 
-    def parse_ingredients(self, ingredients: list[str], *, parser: str = "nlp") -> list[dict[str, Any]]:
+    def parse_ingredients(
+        self, ingredients: list[str], *, parser: str = "nlp"
+    ) -> list[dict[str, Any]]:
         return self.request(
             "POST",
             "/api/parser/ingredients",

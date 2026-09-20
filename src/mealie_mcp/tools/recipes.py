@@ -55,7 +55,16 @@ def resolve_organizers(
         if hit is None:
             skipped.append(name)
         else:
-            resolved.append({"id": hit["id"], "name": hit["name"], "slug": hit.get("slug")})
+            # groupId is required: without it Mealie's PUT fails with a misleading
+            # "Recipe already exists" (its catch-all for IntegrityError).
+            resolved.append(
+                {
+                    "id": hit["id"],
+                    "groupId": hit.get("groupId"),
+                    "name": hit["name"],
+                    "slug": hit.get("slug"),
+                }
+            )
     return resolved, skipped
 
 
@@ -143,9 +152,17 @@ def build_ingredients(
             food = ing.get("food") or {}
             unit = ing.get("unit") or {}
             if isinstance(food, dict) and food.get("name"):
-                item["food"] = {"id": food.get("id") or _ensure_named(client, "/api/foods", food["name"], foods), "name": food["name"]}
+                item["food"] = {
+                    "id": food.get("id")
+                    or _ensure_named(client, "/api/foods", food["name"], foods),
+                    "name": food["name"],
+                }
             if isinstance(unit, dict) and unit.get("name"):
-                item["unit"] = {"id": unit.get("id") or _ensure_named(client, "/api/units", unit["name"], units), "name": unit["name"]}
+                item["unit"] = {
+                    "id": unit.get("id")
+                    or _ensure_named(client, "/api/units", unit["name"], units),
+                    "name": unit["name"],
+                }
             if "food" not in item and not item["note"]:
                 item["note"] = line
             if i in headers:
@@ -276,7 +293,9 @@ def create_recipe(
     ing_objs, warn = build_ingredients(client, ingredients, parse=parse_ingredients)
     if warn:
         warnings.append(warn)
-    cats, skipped_c = resolve_organizers(client, categories, "category", create_missing=create_missing_tags)
+    cats, skipped_c = resolve_organizers(
+        client, categories, "category", create_missing=create_missing_tags
+    )
     tgs, skipped_t = resolve_organizers(client, tags, "tag", create_missing=create_missing_tags)
 
     recipe.update(
@@ -360,7 +379,9 @@ def update_recipe(
     if source_url is not None:
         recipe["orgURL"] = source_url.strip() or None
     if categories is not None:
-        cats, sk = resolve_organizers(client, categories, "category", create_missing=create_missing_tags)
+        cats, sk = resolve_organizers(
+            client, categories, "category", create_missing=create_missing_tags
+        )
         recipe["recipeCategory"] = cats
         skipped += sk
     if tags is not None:

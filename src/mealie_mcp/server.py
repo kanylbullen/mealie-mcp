@@ -103,7 +103,11 @@ def main() -> None:
     # Stateless by default: every tool call carries its own auth and needs no
     # server-side session; with sessions a restart makes the client's session
     # id unknown -> opaque "400 Bad Request" until the client reconnects.
-    stateless = os.environ.get("MCP_HTTP_STATELESS", "1").strip().lower() not in ("0", "false", "no")
+    stateless = os.environ.get("MCP_HTTP_STATELESS", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
     app = mcp.http_app(
         path=os.environ.get("MCP_HTTP_PATH", DEFAULT_PATH),
         middleware=[Middleware(RateLimitMiddleware)],

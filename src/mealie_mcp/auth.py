@@ -360,8 +360,7 @@ def check_scopes(*needed: str, identity: Identity | None = None) -> None:
     missing = sorted(set(needed) - set(ident.scopes))
     if missing:
         raise ScopeDenied(
-            f"Missing scope(s) {missing} for this tool. Granted: "
-            f"{sorted(ident.scopes) or '[]'}."
+            f"Missing scope(s) {missing} for this tool. Granted: {sorted(ident.scopes) or '[]'}."
         )
 
 
