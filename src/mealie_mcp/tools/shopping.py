@@ -69,7 +69,11 @@ def list_shopping_lists() -> dict[str, Any]:
     """Shopping lists in the household with counts of open items."""
     client = get_client()
     out = []
-    for lst in client.shopping_lists():
+    for index_entry in client.shopping_lists():
+        # The list index carries no items at all, so the counts have to come
+        # from each list's own payload — reporting 0 open items on a full list
+        # is worse than the extra call.
+        lst = client.shopping_list(index_entry["id"])
         items = lst.get("listItems") or []
         out.append(
             {
@@ -126,12 +130,14 @@ def add_recipe_to_shopping_list(
 def add_shopping_items(items: list[str], list_id_or_name: str | None = None) -> dict[str, Any]:
     """Add free-text items to a shopping list ("mjölk", "2 kg potatis")."""
     client = get_client()
-    lst = _resolve_list(list_id_or_name)
+    lst = client.shopping_list(_resolve_list(list_id_or_name)["id"])
     lines = [i.strip() for i in items if i and i.strip()]
     if not lines:
         raise ValueError("items is empty")
     if len(lines) > 100:
         raise ValueError("At most 100 items per call.")
+    # Positions continue after what is already there; the list index has no
+    # items, so this needs the list's own payload.
     existing = len(lst.get("listItems") or [])
     payload = [
         {

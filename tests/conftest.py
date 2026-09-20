@@ -79,6 +79,8 @@ class FakeMealie:
         if path == "/api/recipes" and request.method == "GET":
             if request.url.params.get("queryFilter"):
                 return httpx.Response(200, json={"items": self.by_url, "total": len(self.by_url)})
+            if request.url.params.get("search") == "none":
+                return httpx.Response(200, json={"items": [], "total": 0})
             return httpx.Response(
                 200, json={"items": [RECIPE], "total": 1, "page": 1, "total_pages": 1}
             )
@@ -151,7 +153,6 @@ class FakeMealie:
                         {
                             "id": "l1",
                             "name": "Veckohandling",
-                            "listItems": [{"id": "i1", "checked": False, "display": "mjölk"}],
                         }
                     ]
                 },

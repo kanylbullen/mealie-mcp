@@ -188,10 +188,21 @@ class MealieClient:
         return self.get(f"/api/recipes/{slug}")
 
     def recipes_by_source_url(self, url: str) -> list[dict[str, Any]]:
-        """Recipes whose orgURL equals `url` (with or without trailing slash)."""
+        """Recipes whose orgURL equals `url` (with or without trailing slash).
+
+        Mealie's `queryFilter` is a string expression with double-quoted values
+        and no escape that survives (a backslash makes it 500), so a URL
+        containing a quote cannot be expressed: such a URL skips the query
+        rather than risking a filter that means something else. The result is
+        compared again here, so a mangled filter can only cost a round trip,
+        never return an unrelated recipe as a "duplicate".
+        """
         variants = {url, url.rstrip("/"), url.rstrip("/") + "/"}
+        if any('"' in v for v in variants):
+            return []
         clause = " OR ".join(f'orgURL = "{v}"' for v in sorted(variants))
-        return self.get("/api/recipes", queryFilter=clause, perPage=10).get("items", [])
+        found = self.get("/api/recipes", queryFilter=clause, perPage=10).get("items", [])
+        return [r for r in found if str(r.get("orgURL") or "").rstrip("/") == url.rstrip("/")]
 
     def delete_recipe(self, slug: str) -> None:
         self.request("DELETE", f"/api/recipes/{slug}")

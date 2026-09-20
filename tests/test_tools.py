@@ -197,3 +197,24 @@ def test_parser_food_translation_is_kept_as_text(fake):
     assert put["recipeIngredient"][1]["food"]["name"] == "torsk"
     assert fake.created_foods == ["torsk"]
     assert "parser said 'lemon'" in out["warnings"][0]
+
+
+def test_list_counts_come_from_each_list_not_the_index(fake):
+    # Mealie's list index carries no items; counting there reports 0 forever.
+    assert shopping.list_shopping_lists() == {
+        "lists": [{"id": "l1", "name": "Veckohandling", "open_items": 1, "checked_items": 1}]
+    }
+
+
+def test_new_items_are_positioned_after_existing_ones(fake):
+    shopping.add_shopping_items(["ägg"])
+    bulk = next(b for m, p, b in fake.calls if p.endswith("create-bulk"))
+    assert bulk[0]["position"] == 2
+
+
+def test_source_url_lookup_cannot_be_steered_by_the_url(fake):
+    fake.by_url = [{"slug": "nagot-annat", "orgURL": "https://helt.annat.se/x"}]
+    assert recipes.create_recipe_from_url('https://x.se/a" OR name LIKE "%')["created"] is True
+    assert not any(r.url.params.get("queryFilter") for r in fake.requests)
+    # a mangled filter that still runs cannot pass an unrelated recipe off as a duplicate
+    assert recipes.create_recipe_from_url("https://x.se/a")["created"] is True
