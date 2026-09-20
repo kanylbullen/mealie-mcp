@@ -7,7 +7,7 @@ claude.ai, Claude Desktop, Claude Code or any other MCP client.
 Runs as a single long-lived **Streamable HTTP** server with **OAuth 2.1** in front (any OIDC IdP;
 built and tested against Authentik), or over stdio for local use.
 
-## Tools (19)
+## Tools (20)
 
 | Area | Tools |
 |---|---|
@@ -15,6 +15,7 @@ built and tested against Authentik), or over stdio for local use.
 | Meal plan | `get_mealplan`, `add_mealplan_entry`, `update_mealplan_entry`, `remove_mealplan_entry`, `add_random_mealplan_entry` |
 | Shopping | `list_shopping_lists`, `get_shopping_list`, `add_recipe_to_shopping_list`, `add_shopping_items`, `check_shopping_items`, `remove_shopping_items`, `clear_checked_shopping_items` |
 | Organizers | `list_categories_and_tags` |
+| Server | `server_info` (build, Mealie version, caller scopes) |
 
 Deliberately **not** included: bulk imports, anything under `/api/admin`, backups, user
 management. `delete_recipe` only removes recipes the server's own Mealie user created (its

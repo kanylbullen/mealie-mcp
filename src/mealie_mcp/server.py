@@ -82,7 +82,13 @@ def check_mealie() -> None:
 
 def main() -> None:
     # Tool modules register themselves on import via @mcp.tool()
-    from mealie_mcp.tools import mealplans, organizers, recipes, shopping  # noqa: F401
+    from mealie_mcp.tools import (  # noqa: F401
+        mealplans,
+        organizers,
+        recipes,
+        server_info,
+        shopping,
+    )
 
     try:
         transport = resolve_transport()

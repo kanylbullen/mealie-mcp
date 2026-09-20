@@ -8,7 +8,7 @@ from typing import Any
 
 from mealie_mcp.app import mcp
 from mealie_mcp.auth import SCOPE_READ, SCOPE_WRITE, requires_scope
-from mealie_mcp.client import MealieError, get_client
+from mealie_mcp.client import get_client
 from mealie_mcp.tools._shape import shopping_item
 from mealie_mcp.tools.recipes import require_recipe
 
@@ -51,16 +51,27 @@ def _item_ids(item_ids: list[str]) -> list[str]:
     return ids
 
 
-def _get_item(item_id: str) -> dict[str, Any]:
+def _items_by_id(item_ids: list[str]) -> list[dict[str, Any]]:
+    """The whole items behind these ids, in the order given.
+
+    Read through the lists rather than one GET per id: a household has a
+    couple of lists and a call may carry a dozen ids.
+    """
     client = get_client()
-    try:
-        return client.shopping_item(item_id)
-    except MealieError as exc:
-        if exc.status == 404:
-            raise ValueError(
-                f"No shopping item {item_id!r} (already removed?); see get_shopping_list."
-            ) from exc
-        raise
+    found: dict[str, dict[str, Any]] = {}
+    wanted = set(item_ids)
+    for index_entry in client.shopping_lists():
+        for item in client.shopping_list(index_entry["id"]).get("listItems") or []:
+            if str(item.get("id")) in wanted:
+                found[str(item["id"])] = item
+        if len(found) == len(wanted):
+            break
+    missing = [i for i in item_ids if i not in found]
+    if missing:
+        raise ValueError(
+            f"No shopping item {missing[0]!r} (already removed?); see get_shopping_list."
+        )
+    return [found[i] for i in item_ids]
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
@@ -160,14 +171,10 @@ def check_shopping_items(item_ids: list[str], checked: bool = True) -> dict[str,
     Ticked items stay on the list (greyed out); `remove_shopping_items` or
     `clear_checked_shopping_items` take them off."""
     client = get_client()
-    done: list[str] = []
-    for item_id in _item_ids(item_ids):
-        # PUT needs the whole item; fetch it first to keep fields intact.
-        item = _get_item(item_id)
-        item["checked"] = bool(checked)
-        client.update_shopping_item(item_id, item)
-        done.append(item_id)
-    return {"updated": done, "checked": bool(checked)}
+    ids = _item_ids(item_ids)
+    items = [{**item, "checked": bool(checked)} for item in _items_by_id(ids)]
+    client.update_shopping_items(items)
+    return {"updated": ids, "checked": bool(checked)}
 
 
 @mcp.tool(annotations={"destructiveHint": True})
@@ -177,7 +184,7 @@ def remove_shopping_items(item_ids: list[str]) -> dict[str, Any]:
     Use `check_shopping_items` instead when the item was bought."""
     client = get_client()
     ids = _item_ids(item_ids)
-    removed = [shopping_item(_get_item(i)) for i in ids]
+    removed = [shopping_item(i) for i in _items_by_id(ids)]
     client.delete_shopping_items(ids)
     return {"removed": removed}
 

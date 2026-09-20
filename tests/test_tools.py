@@ -1,8 +1,10 @@
+import json
+
 import pytest
 
 from mealie_mcp.client import MealieError
 from mealie_mcp.client import get_client as fake_client
-from mealie_mcp.tools import mealplans, organizers, recipes, shopping
+from mealie_mcp.tools import mealplans, organizers, recipes, server_info, shopping
 
 
 def test_search_and_get(fake):
@@ -148,6 +150,7 @@ def test_shopping_remove_and_clear(fake):
         shopping.remove_shopping_items(["11111111-0000-4000-8000-000000000001"])
     out = shopping.remove_shopping_items([good])
     assert out["removed"][0]["text"] == "mjölk" and fake.deleted == [good]
+    fake.deleted.clear()
     out = shopping.clear_checked_shopping_items()
     assert out["removed"] == 1 and out["open_items"] == 1 and fake.deleted[-1] == "i2"
 
@@ -199,6 +202,16 @@ def test_parser_food_translation_is_kept_as_text(fake):
     assert "parser said 'lemon'" in out["warnings"][0]
 
 
+def test_checking_items_sends_whole_items_in_one_call(fake):
+    good = "00000000-0000-4000-8000-000000000001"
+    out = shopping.check_shopping_items([good])
+    assert out == {"updated": [good], "checked": True}
+    # Mealie fills anything left out with defaults, so a partial entry would
+    # wipe the note; and it must be one bulk call, not one PUT per item.
+    assert fake.bulk_updated == [{"id": good, "checked": True, "display": "mjölk", "note": "mjölk"}]
+    assert sum(1 for m, p, _ in fake.calls if m == "PUT" and "shopping" in p) == 1
+
+
 def test_list_counts_come_from_each_list_not_the_index(fake):
     # Mealie's list index carries no items; counting there reports 0 forever.
     assert shopping.list_shopping_lists() == {
@@ -218,3 +231,17 @@ def test_source_url_lookup_cannot_be_steered_by_the_url(fake):
     assert not any(r.url.params.get("queryFilter") for r in fake.requests)
     # a mangled filter that still runs cannot pass an unrelated recipe off as a duplicate
     assert recipes.create_recipe_from_url("https://x.se/a")["created"] is True
+
+
+def test_server_info_reports_build_and_mealie(fake, monkeypatch):
+    monkeypatch.setenv("MEALIE_MCP_GIT_REF", "abc1234")
+    out = server_info.server_info()
+    assert out["server"]["git_ref"] == "abc1234"
+    assert out["server"]["auth_mode"] == "none"
+    assert out["mealie"] == {
+        "version": None,
+        "url": "http://mealie.test",
+        "user": "mcp",
+        "admin": False,
+    }
+    assert "token" not in json.dumps(out).lower()

@@ -15,6 +15,7 @@ TAGS = [
     {"id": "t3", "groupId": "g", "name": "Viktväktarna", "slug": "viktvaktarna"},
 ]
 ME = "u-mcp"
+ITEM = "00000000-0000-4000-8000-000000000001"
 CATS = [{"id": "c1", "groupId": "g", "name": "Middag", "slug": "middag"}]
 RECIPE = {
     "id": "r1",
@@ -44,6 +45,7 @@ class FakeMealie:
         self.stub_next_import = False
         self.parsed: list[dict] = []
         self.created_foods: list[str] = []
+        self.bulk_updated: list[dict] | None = None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -125,13 +127,9 @@ class FakeMealie:
         if path == "/api/households/shopping/items" and request.method == "DELETE":
             self.deleted += request.url.params.get_list("ids")
             return httpx.Response(200, json={"message": "", "error": False})
-        if path.startswith("/api/households/shopping/items/") and request.method == "GET":
-            item_id = path.rsplit("/", 1)[1]
-            if not item_id.startswith("0000"):
-                return httpx.Response(404, json={"detail": {"message": "Not found."}})
-            return httpx.Response(200, json={"id": item_id, "checked": False, "display": "mjölk"})
-        if path.startswith("/api/households/shopping/items/") and request.method == "PUT":
-            return httpx.Response(200, json=body)
+        if path == "/api/households/shopping/items" and request.method == "PUT":
+            self.bulk_updated = body
+            return httpx.Response(200, json={"updatedItems": body})
         if path == "/api/households/mealplans" and request.method == "GET":
             return httpx.Response(
                 200,
@@ -164,7 +162,7 @@ class FakeMealie:
                     "id": "l1",
                     "name": "Veckohandling",
                     "listItems": [
-                        {"id": "i1", "checked": False, "display": "mjölk"},
+                        {"id": ITEM, "checked": False, "display": "mjölk", "note": "mjölk"},
                         {"id": "i2", "checked": True, "display": "ägg"},
                     ],
                 },

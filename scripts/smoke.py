@@ -24,7 +24,13 @@ from fastmcp import Client  # noqa: E402
 
 from mealie_mcp.app import mcp  # noqa: E402
 from mealie_mcp.client import get_client  # noqa: E402
-from mealie_mcp.tools import mealplans, organizers, recipes, shopping  # noqa: E402,F401
+from mealie_mcp.tools import (  # noqa: E402,F401
+    mealplans,
+    organizers,
+    recipes,
+    server_info,
+    shopping,
+)
 
 TEST_NAME = "ZZ mealie-mcp smoke test"
 
@@ -43,6 +49,7 @@ async def main(write: bool, url: str | None):
     async with Client(mcp) as c:
         tools = await c.list_tools()
         print(f"tools: {len(tools)}")
+        show("server_info", await c.call_tool("server_info", {}))
         cats = show("list_categories_and_tags", await c.call_tool("list_categories_and_tags", {}))
         found = show(
             "search_recipes", await c.call_tool("search_recipes", {"query": "kyckling", "limit": 3})

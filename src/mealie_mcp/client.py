@@ -305,6 +305,14 @@ class MealieClient:
     def update_shopping_item(self, item_id: str, item: dict[str, Any]) -> Any:
         return self.request("PUT", f"/api/households/shopping/items/{item_id}", json=item)
 
+    def update_shopping_items(self, items: list[dict[str, Any]]) -> Any:
+        """Bulk update. Each entry must be a WHOLE item: Mealie fills anything
+        left out with defaults, so a partial entry silently wipes note,
+        quantity and position (verified 2026-09-20)."""
+        if not items:
+            return None
+        return self.request("PUT", "/api/households/shopping/items", json=items)
+
     def delete_shopping_items(self, item_ids: list[str]) -> None:
         if item_ids:
             self.request("DELETE", "/api/households/shopping/items", params={"ids": item_ids})
