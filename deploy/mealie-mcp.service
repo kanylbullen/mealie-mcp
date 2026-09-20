@@ -1,0 +1,45 @@
+# systemd unit for mealie-mcp over Streamable HTTP with OAuth.
+# Install: cp to /etc/systemd/system/, put secrets in /etc/mealie-mcp/secrets.env (root:root 0600),
+# site settings in a drop-in (systemctl edit mealie-mcp), then systemctl enable --now mealie-mcp.
+[Unit]
+Description=mealie-mcp — MCP server for Mealie (HTTP + OAuth)
+Documentation=https://github.com/kanylbullen/mealie-mcp
+After=network-online.target mealie.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mealiemcp
+Group=mealiemcp
+# Secrets: MEALIE_TOKEN, MCP_OAUTH_CLIENT_ID, MCP_OAUTH_CLIENT_SECRET. Read by systemd as root,
+# so the file can stay root-only and the service user never sees it on disk.
+EnvironmentFile=/etc/mealie-mcp/secrets.env
+Environment=MCP_TRANSPORT=http
+Environment=MCP_HTTP_HOST=127.0.0.1
+Environment=MCP_HTTP_PORT=3011
+Environment=MCP_AUTH_MODE=oauth-proxy
+Environment=MEALIE_URL=http://127.0.0.1:9000
+# Site-specific (set in a drop-in): MCP_PUBLIC_URL, MCP_OAUTH_ISSUER, MCP_OAUTH_AUDIENCE,
+# MEALIE_PUBLIC_URL, MCP_TRUST_FORWARDED_FOR, MCP_HTTP_HOST if a tunnel host must reach it.
+#
+# The OAuth proxy persists client registrations, codes and refresh tokens under FASTMCP_HOME.
+# It MUST survive restarts, or every connected client gets 401 on /token after each deploy.
+StateDirectory=mealie-mcp
+Environment=FASTMCP_HOME=/var/lib/mealie-mcp/fastmcp
+Environment=HOME=/var/lib/mealie-mcp
+WorkingDirectory=/var/lib/mealie-mcp
+ExecStart=/opt/mealie-mcp/venv/bin/mealie-mcp
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
