@@ -42,6 +42,8 @@ class FakeMealie:
         self.deleted: list[str] = []
         self.by_url: list[dict] = []
         self.stub_next_import = False
+        self.parsed: list[dict] = []
+        self.created_foods: list[str] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -82,6 +84,15 @@ class FakeMealie:
             )
         if path == "/api/recipes" and request.method == "POST":
             return httpx.Response(201, json=body["name"].lower())
+        if path == "/api/app/about":
+            return httpx.Response(200, json={"enableOpenai": False})
+        if path == "/api/parser/ingredients":
+            return httpx.Response(200, json=self.parsed)
+        if path == "/api/foods" and request.method == "GET":
+            return httpx.Response(200, json={"items": []})
+        if path == "/api/foods" and request.method == "POST":
+            self.created_foods.append(body["name"])
+            return httpx.Response(201, json={"id": f"f-{len(self.created_foods)}", **body})
         if path == "/api/recipes/create/url":
             return httpx.Response(201, json="stub" if self.stub_next_import else "imported")
         if path.startswith("/api/recipes/") and request.method == "GET":

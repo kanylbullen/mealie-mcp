@@ -9,6 +9,7 @@ from mealie_mcp.app import mcp
 from mealie_mcp.auth import SCOPE_READ, SCOPE_WRITE, requires_scope
 from mealie_mcp.client import MealieError, get_client
 from mealie_mcp.tools._shape import mealplan_entry
+from mealie_mcp.tools.recipes import require_recipe
 
 MEAL_TYPES = ("breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert")
 _MAX_RANGE_DAYS = 62
@@ -29,13 +30,7 @@ def _meal(value: str) -> str:
 
 
 def _recipe_id(slug: str) -> tuple[str, dict[str, Any]]:
-    client = get_client()
-    try:
-        recipe = client.get_recipe(slug.strip())
-    except MealieError as exc:
-        if exc.status == 404:
-            raise ValueError(f"No recipe with slug {slug!r}; use search_recipes first.") from exc
-        raise
+    recipe = require_recipe(get_client(), slug)
     return str(recipe["id"]), recipe
 
 

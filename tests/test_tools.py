@@ -1,6 +1,7 @@
 import pytest
 
 from mealie_mcp.client import MealieError
+from mealie_mcp.client import get_client as fake_client
 from mealie_mcp.tools import mealplans, organizers, recipes, shopping
 
 
@@ -78,9 +79,19 @@ def test_organizers(fake):
     }
 
 
+def test_unknown_recipe_slug_is_a_value_error_everywhere(fake):
+    for call in (
+        lambda: recipes.get_recipe("missing"),
+        lambda: recipes.update_recipe("missing", name="x"),
+        lambda: shopping.add_recipe_to_shopping_list("missing"),
+    ):
+        with pytest.raises(ValueError, match="No recipe with slug 'missing'; use search_recipes"):
+            call()
+
+
 def test_mealie_error_message_is_compact(fake):
-    with pytest.raises(MealieError, match="404"):
-        recipes.get_recipe("missing")
+    with pytest.raises(MealieError, match=r"-> 500: unhandled GET /api/nope$"):
+        fake_client().get("/api/nope")
 
 
 def test_search_resolves_tag_display_names_to_slugs(fake):
@@ -90,8 +101,10 @@ def test_search_resolves_tag_display_names_to_slugs(fake):
 
 
 def test_search_unknown_tag_is_an_error_not_an_unfiltered_result(fake):
-    with pytest.raises(ValueError, match=r"Unknown tag \['Fisk'\]; existing tag names"):
+    with pytest.raises(ValueError, match=r"Unknown tag \['Fisk'\] — no similar name \(2 tag names"):
         recipes.search_recipes(tags=["Fisk"])
+    with pytest.raises(ValueError, match=r"did you mean \['Viktväktarna'\]"):
+        recipes.search_recipes(tags=["viktvaktare"])
     assert not any(r.url.path == "/api/recipes" for r in fake.requests)
 
 
@@ -152,3 +165,35 @@ def test_422_detail_is_compacted():
     detail = [{"type": "uuid_parsing", "loc": ["path", "item_id"], "msg": "Input should be a UUID"}]
     assert _clean(detail) == "item_id: Input should be a UUID"
     assert _clean({"message": "Not found.", "error": True}) == "Not found."
+
+
+def test_food_the_cook_did_not_write_is_not_created():
+    assert recipes._written("torskfilé", "600 g torskfilé")
+    assert recipes._written("knippa dill", "1 knippe dill, hackad")  # "dill" carries it
+    assert not recipes._written("lemon", "1/2 citron, saften")
+    assert not recipes._written("cod fillet", "600 g torskrygg")
+
+
+def test_parser_food_translation_is_kept_as_text(fake):
+    fake.parsed = [
+        {
+            "confidence": {"average": 0.9},
+            "ingredient": {"quantity": 0.5, "food": {"name": "lemon"}},
+        },
+        {
+            "confidence": {"average": 0.9},
+            "ingredient": {"quantity": 600, "food": {"name": "torsk"}},
+        },
+    ]
+    out = recipes.create_recipe(
+        name="Ny", ingredients=["1/2 citron, saften", "600 g torsk"], instructions=["y"]
+    )
+    put = next(b for m, p, b in fake.calls if m == "PUT")
+    assert put["recipeIngredient"][0] == {
+        "quantity": 0,
+        "note": "1/2 citron, saften",
+        "originalText": "1/2 citron, saften",
+    }
+    assert put["recipeIngredient"][1]["food"]["name"] == "torsk"
+    assert fake.created_foods == ["torsk"]
+    assert "parser said 'lemon'" in out["warnings"][0]

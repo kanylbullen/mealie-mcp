@@ -10,6 +10,7 @@ from mealie_mcp.app import mcp
 from mealie_mcp.auth import SCOPE_READ, SCOPE_WRITE, requires_scope
 from mealie_mcp.client import MealieError, get_client
 from mealie_mcp.tools._shape import shopping_item
+from mealie_mcp.tools.recipes import require_recipe
 
 
 def _resolve_list(list_id_or_name: str | None) -> dict[str, Any]:
@@ -107,12 +108,7 @@ def add_recipe_to_shopping_list(
     quantities (2 = double batch). Mealie merges same foods into one line."""
     client = get_client()
     lst = _resolve_list(list_id_or_name)
-    try:
-        recipe = client.get_recipe(recipe_slug.strip())
-    except MealieError as exc:
-        if exc.status == 404:
-            raise ValueError(f"No recipe with slug {recipe_slug!r}") from exc
-        raise
+    recipe = require_recipe(client, recipe_slug)
     if scale <= 0:
         raise ValueError("scale must be > 0")
     client.add_recipe_to_shopping_list(lst["id"], str(recipe["id"]), scale=float(scale))

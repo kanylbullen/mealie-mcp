@@ -9,6 +9,7 @@ the name.
 
 from __future__ import annotations
 
+import difflib
 import os
 from typing import Any
 
@@ -24,6 +25,18 @@ _UNNAMED_STUB = "no recipe name found"
 
 
 # -- organizer / food / unit resolution --------------------------------------
+
+
+def require_recipe(client: MealieClient, slug: str) -> dict[str, Any]:
+    """A recipe by slug, or a ValueError that names the slug and the way forward
+    (instead of Mealie's raw `GET /api/recipes/x -> 404`)."""
+    slug = slug.strip()
+    try:
+        return client.get_recipe(slug)
+    except MealieError as exc:
+        if exc.status == 404:
+            raise ValueError(f"No recipe with slug {slug!r}; use search_recipes first.") from exc
+        raise
 
 
 def _by_name(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -103,9 +116,15 @@ def resolve_filter_slugs(client: MealieClient, names: list[str] | None, kind: st
             unknown.append(raw.strip())
     if unknown:
         known = sorted(str(it.get("name", "")) for it in items)
+        close: list[str] = []
+        for u in unknown:
+            close += [
+                n for n in difflib.get_close_matches(u, known, n=3, cutoff=0.5) if n not in close
+            ]
+        hint = f"did you mean {close}?" if close else "no similar name"
         raise ValueError(
-            f"Unknown {kind}{'s' if len(unknown) > 1 else ''} {unknown}; "
-            f"existing {kind} names: {known}"
+            f"Unknown {kind}{'s' if len(unknown) > 1 else ''} {unknown} — {hint} "
+            f"({len(known)} {kind} names exist; see list_categories_and_tags)"
         )
     return slugs
 
@@ -184,6 +203,7 @@ def build_ingredients(
     units: dict[str, Any] = {}
     out: list[dict[str, Any]] = []
     unsure: list[str] = []
+    invented: list[str] = []
     try:
         for i, (line, p) in enumerate(zip(body, parsed, strict=True)):
             ing = dict(p.get("ingredient") or {})
@@ -198,11 +218,20 @@ def build_ingredients(
             food = ing.get("food") or {}
             unit = ing.get("unit") or {}
             if isinstance(food, dict) and food.get("name"):
-                item["food"] = {
-                    "id": food.get("id")
-                    or _ensure_named(client, "/api/foods", food["name"], foods),
-                    "name": food["name"],
-                }
+                if food.get("id") or _written(food["name"], line):
+                    item["food"] = {
+                        "id": food.get("id")
+                        or _ensure_named(client, "/api/foods", food["name"], foods),
+                        "name": food["name"],
+                    }
+                else:
+                    # A food Mealie does not know and the cook did not write (the LLM
+                    # parser translating "citron" to "lemon") must not enter the food
+                    # database under that name. Keep the line whole instead.
+                    invented.append(f"{line!r} (parser said {food['name']!r})")
+                    item["note"] = line
+                    item["quantity"] = 0
+                    unit = {}
             if isinstance(unit, dict) and unit.get("name"):
                 item["unit"] = {
                     "id": unit.get("id")
@@ -216,13 +245,27 @@ def build_ingredients(
             out.append(item)
     except MealieError as exc:
         return verbatim(), f"Could not create foods/units ({exc}); lines stored as written."
+    notes: list[str] = []
+    if invented:
+        notes.append(
+            "Stored as plain text because the parser named a food that is not in the line "
+            "and not in Mealie's food list: " + "; ".join(invented) + "."
+        )
     if unsure:
-        return out, (
+        notes.append(
             "Ingredient parser was unsure about: "
             + "; ".join(repr(u) for u in unsure)
             + ". Check them in the result and fix with update_recipe if wrong."
         )
-    return out, None
+    return out, (" ".join(notes) or None)
+
+
+def _written(name: str, line: str) -> bool:
+    """Did the cook write this food? Some word of the parsed name must occur in
+    the line: "knippa dill" for "1 knippe dill" passes on "dill", while "lemon"
+    for "citron" fails."""
+    words = [w for w in name.casefold().split() if len(w) > 2]
+    return any(w in line.casefold() for w in words)
 
 
 def _note_from_line(line: str, parsed_note: Any) -> str:
@@ -295,7 +338,7 @@ def search_recipes(
 def get_recipe(slug: str) -> dict[str, Any]:
     """Read one recipe in full: ingredients, instructions, notes, nutrition, source URL."""
     client = get_client()
-    return recipe_detail(client.get_recipe(slug.strip()), client)
+    return recipe_detail(require_recipe(client, slug), client)
 
 
 @mcp.tool()
@@ -446,7 +489,7 @@ def update_recipe(
     """
     client = get_client()
     slug = slug.strip()
-    recipe = client.get_recipe(slug)
+    recipe = require_recipe(client, slug)
     warnings: list[str] = []
     skipped: list[str] = []
 
@@ -508,12 +551,7 @@ def delete_recipe(slug: str) -> dict[str, Any]:
     deleted here — that is done in the Mealie web UI."""
     client = get_client()
     slug = slug.strip()
-    try:
-        recipe = client.get_recipe(slug)
-    except MealieError as exc:
-        if exc.status == 404:
-            raise ValueError(f"No recipe with slug {slug!r}; use search_recipes first.") from exc
-        raise
+    recipe = require_recipe(client, slug)
     if str(recipe.get("userId") or "") != client.user_id:
         raise ValueError(
             f"Recipe {slug!r} was not created through this server; delete it in the Mealie UI."
