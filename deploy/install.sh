@@ -18,6 +18,9 @@ fi
 git -C "$BASE/src" fetch --quiet origin
 git -C "$BASE/src" checkout --quiet --detach "$REF"
 echo "$REF" > "$BASE/src/GIT_REF"
+# Also beside the venv: the installed package lives under venv/lib/... and
+# server_info walks up from there, which never reaches src/.
+echo "$REF" > "$BASE/GIT_REF"
 
 [ -x "$BASE/venv/bin/python" ] || python3 -m venv "$BASE/venv"
 "$BASE/venv/bin/pip" install --quiet --upgrade pip

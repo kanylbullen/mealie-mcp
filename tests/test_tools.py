@@ -245,3 +245,13 @@ def test_server_info_reports_build_and_mealie(fake, monkeypatch):
         "admin": False,
     }
     assert "token" not in json.dumps(out).lower()
+
+
+def test_git_ref_is_found_from_an_installed_venv_layout(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEALIE_MCP_GIT_REF", raising=False)
+    base = tmp_path / "opt"
+    pkg = base / "venv" / "lib" / "python3.13" / "site-packages" / "mealie_mcp" / "tools"
+    pkg.mkdir(parents=True)
+    (base / "GIT_REF").write_text("c67a250\n")
+    monkeypatch.setattr(server_info, "__file__", str(pkg / "server_info.py"))
+    assert server_info.deployed_ref() == "c67a250"

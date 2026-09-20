@@ -18,10 +18,12 @@ def deployed_ref() -> str | None:
     env = (os.environ.get("MEALIE_MCP_GIT_REF") or "").strip()
     if env:
         return env
+    # Installed, the package sits under <base>/venv/lib/.../mealie_mcp, so the
+    # walk passes <base> but never <base>/src — check both names.
     for parent in Path(__file__).resolve().parents:
-        ref = parent / "GIT_REF"
-        if ref.is_file():
-            return ref.read_text().strip() or None
+        for ref in (parent / "GIT_REF", parent / "src" / "GIT_REF"):
+            if ref.is_file():
+                return ref.read_text().strip() or None
     return None
 
 
