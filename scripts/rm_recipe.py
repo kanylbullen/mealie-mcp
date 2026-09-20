@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Delete a recipe by slug (there is deliberately no MCP tool for this).
+"""Delete any recipe by slug, whoever created it (the `delete_recipe` tool
+only removes recipes this server's own user created).
 
 Usage: rm_recipe.py <slug>
 """

@@ -39,6 +39,18 @@ def _recipe_id(slug: str) -> tuple[str, dict[str, Any]]:
     return str(recipe["id"]), recipe
 
 
+def _entry(entry_id: int) -> dict[str, Any]:
+    client = get_client()
+    try:
+        return client.get_mealplan_entry(int(entry_id))
+    except MealieError as exc:
+        if exc.status == 404:
+            raise ValueError(
+                f"No meal plan entry with id {entry_id}; ids come from get_mealplan."
+            ) from exc
+        raise
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 @requires_scope(SCOPE_READ)
 def get_mealplan(start_date: str, end_date: str | None = None) -> dict[str, Any]:
@@ -107,7 +119,7 @@ def update_mealplan_entry(
     detaches the recipe.
     """
     client = get_client()
-    current = client.get_mealplan_entry(int(entry_id))
+    current = _entry(entry_id)
     body: dict[str, Any] = {
         "id": current["id"],
         "groupId": current["groupId"],
@@ -142,7 +154,7 @@ def update_mealplan_entry(
 def remove_mealplan_entry(entry_id: int) -> dict[str, Any]:
     """Remove one planned meal by id. Only the plan entry goes; the recipe stays."""
     client = get_client()
-    before = mealplan_entry(client.get_mealplan_entry(int(entry_id)), client)
+    before = mealplan_entry(_entry(entry_id), client)
     client.delete_mealplan_entry(int(entry_id))
     return {"removed": True, "entry": before}
 

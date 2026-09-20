@@ -1,8 +1,10 @@
-"""Recipe tools: search, read, import from URL, create from text, update.
+"""Recipe tools: search, read, import from URL, create from text, update, delete own.
 
-No delete on purpose. Deleting is a rare, deliberate act that belongs in the
-web UI; a confirm gate would not stop a model that is convinced it should
-proceed, it would just make it type the name.
+`delete_recipe` only removes recipes this server's own Mealie user created —
+its imports and text recipes, i.e. what a model can undo of its own doing.
+Everything else stays deletable only in the web UI: a confirm gate would not
+stop a model that is convinced it should proceed, it would just make it type
+the name.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from mealie_mcp.tools._shape import is_stub, recipe_detail, recipe_summary
 
 _MAX_PER_PAGE = 50
 _SKIPPED_HINT = "Not found; pick from list_categories_and_tags or pass create_missing_tags=true."
+_LOW_CONFIDENCE = 0.7
+_UNNAMED_STUB = "no recipe name found"
 
 
 # -- organizer / food / unit resolution --------------------------------------
@@ -67,6 +71,43 @@ def resolve_organizers(
                 }
             )
     return resolved, skipped
+
+
+def resolve_filter_slugs(client: MealieClient, names: list[str] | None, kind: str) -> list[str]:
+    """Category/tag names (or slugs) -> slugs for the recipe search filter.
+
+    Mealie filters on slug, and its slugs strip diacritics ("Viktväktarna" ->
+    "viktvaktarna"), so the display names `list_categories_and_tags` returns
+    would silently match nothing — Mealie then returns the whole library, which
+    looks like a successful search. Unknown names are an error instead.
+    """
+    if not names:
+        return []
+    items = client.categories() if kind == "category" else client.tags()
+    lookup: dict[str, str] = {}
+    for it in items:
+        slug = str(it.get("slug") or "")
+        if not slug:
+            continue
+        lookup[str(it.get("name", "")).strip().casefold()] = slug
+        lookup[slug.casefold()] = slug
+    slugs: list[str] = []
+    unknown: list[str] = []
+    for raw in names:
+        key = raw.strip().casefold()
+        if not key:
+            continue
+        if key in lookup:
+            slugs.append(lookup[key])
+        else:
+            unknown.append(raw.strip())
+    if unknown:
+        known = sorted(str(it.get("name", "")) for it in items)
+        raise ValueError(
+            f"Unknown {kind}{'s' if len(unknown) > 1 else ''} {unknown}; "
+            f"existing {kind} names: {known}"
+        )
+    return slugs
 
 
 def _parser_name(client: MealieClient) -> str:
@@ -142,14 +183,18 @@ def build_ingredients(
     foods: dict[str, Any] = {}
     units: dict[str, Any] = {}
     out: list[dict[str, Any]] = []
+    unsure: list[str] = []
     try:
         for i, (line, p) in enumerate(zip(body, parsed, strict=True)):
             ing = dict(p.get("ingredient") or {})
             item: dict[str, Any] = {
                 "quantity": ing.get("quantity") or 0,
-                "note": ing.get("note") or "",
+                "note": _note_from_line(line, ing.get("note")),
                 "originalText": line,
             }
+            avg = (p.get("confidence") or {}).get("average")
+            if isinstance(avg, (int, float)) and avg < _LOW_CONFIDENCE:
+                unsure.append(line)
             food = ing.get("food") or {}
             unit = ing.get("unit") or {}
             if isinstance(food, dict) and food.get("name"):
@@ -171,7 +216,24 @@ def build_ingredients(
             out.append(item)
     except MealieError as exc:
         return verbatim(), f"Could not create foods/units ({exc}); lines stored as written."
+    if unsure:
+        return out, (
+            "Ingredient parser was unsure about: "
+            + "; ".join(repr(u) for u in unsure)
+            + ". Check them in the result and fix with update_recipe if wrong."
+        )
     return out, None
+
+
+def _note_from_line(line: str, parsed_note: Any) -> str:
+    """The preparation note ("hackad", "saften") must come from the cook's own
+    line. Mealie's LLM parser sometimes embellishes it — "saften-the juice" —
+    and that text ends up on the shopping list. After the first comma is what
+    the cook wrote; otherwise keep the parser's note only if it is really there."""
+    if "," in line:
+        return line.split(",", 1)[1].strip()
+    note = str(parsed_note or "").strip()
+    return note if note and note.casefold() in line.casefold() else ""
 
 
 def build_instructions(steps: list[str]) -> list[dict[str, Any]]:
@@ -207,14 +269,15 @@ def search_recipes(
 
     Returns compact summaries (slug, name, categories, tags, servings, time).
     Use `get_recipe` with a slug for ingredients and instructions. Category and
-    tag names must match existing ones — see `list_categories_and_tags`.
+    tag names are matched case-insensitively against `list_categories_and_tags`;
+    an unknown name is an error (not an unfiltered result).
     """
     client = get_client()
     limit = max(1, min(int(limit), _MAX_PER_PAGE))
     res = client.search_recipes(
         search=query,
-        categories=categories,
-        tags=tags,
+        categories=resolve_filter_slugs(client, categories, "category"),
+        tags=resolve_filter_slugs(client, tags, "tag"),
         require_all_tags=require_all_tags,
         per_page=limit,
         page=max(1, int(page)),
@@ -237,17 +300,40 @@ def get_recipe(slug: str) -> dict[str, Any]:
 
 @mcp.tool()
 @requires_scope(SCOPE_WRITE)
-def create_recipe_from_url(url: str, import_tags: bool = False) -> dict[str, Any]:
+def create_recipe_from_url(
+    url: str, import_tags: bool = False, allow_duplicate: bool = False
+) -> dict[str, Any]:
     """Import a recipe from a web page URL using Mealie's scraper.
 
     Mealie fetches the page itself (schema.org data, then an LLM pass if
     configured). Paywalled or JavaScript-only pages yield a *stub* recipe with
     "Could not detect ingredients" — the result flags that with a warning so
     you can fix it with `update_recipe` or ask the user for the text instead.
+    A page with no recipe at all (404, wrong link) is not kept.
+
+    If the library already has a recipe from this URL it is returned instead
+    (`created: false`, `duplicate_of`); pass `allow_duplicate` to import anyway.
     """
     client = get_client()
-    slug = client.create_recipe_from_url(url.strip(), include_tags=import_tags)
+    url = url.strip()
+    if not url:
+        raise ValueError("url is required")
+    if not allow_duplicate:
+        existing = client.recipes_by_source_url(url)
+        if existing:
+            out = recipe_detail(client.get_recipe(existing[0]["slug"]), client)
+            out["created"] = False
+            out["duplicate_of"] = [r["slug"] for r in existing]
+            out["hint"] = "Already imported from this URL; pass allow_duplicate=true to re-import."
+            return out
+    slug = client.create_recipe_from_url(url, include_tags=import_tags)
     recipe = client.get_recipe(slug)
+    if is_stub(recipe) and str(recipe.get("name", "")).casefold().startswith(_UNNAMED_STUB):
+        client.delete_recipe(slug)
+        raise ValueError(
+            f"No recipe found at {url}: the page has no name, ingredients or instructions "
+            "(probably 404 or not a recipe page). Nothing was saved."
+        )
     out = recipe_detail(recipe, client)
     out["created"] = True
     return out
@@ -412,3 +498,25 @@ def update_recipe(
     if is_stub(saved):
         out.setdefault("warnings", []).append("Recipe still contains import-stub placeholders.")
     return out
+
+
+@mcp.tool(annotations={"destructiveHint": True})
+@requires_scope(SCOPE_WRITE)
+def delete_recipe(slug: str) -> dict[str, Any]:
+    """Delete a recipe that was created through this server (an import or a
+    text recipe you made). Recipes other household members created cannot be
+    deleted here — that is done in the Mealie web UI."""
+    client = get_client()
+    slug = slug.strip()
+    try:
+        recipe = client.get_recipe(slug)
+    except MealieError as exc:
+        if exc.status == 404:
+            raise ValueError(f"No recipe with slug {slug!r}; use search_recipes first.") from exc
+        raise
+    if str(recipe.get("userId") or "") != client.user_id:
+        raise ValueError(
+            f"Recipe {slug!r} was not created through this server; delete it in the Mealie UI."
+        )
+    client.delete_recipe(slug)
+    return {"deleted": True, "slug": slug, "name": recipe.get("name")}

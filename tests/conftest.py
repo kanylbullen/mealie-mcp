@@ -10,10 +10,15 @@ import pytest
 from mealie_mcp import client as client_mod
 from mealie_mcp.client import MealieClient
 
-TAGS = [{"id": "t1", "groupId": "g", "name": "Vardag", "slug": "vardag"}]
+TAGS = [
+    {"id": "t1", "groupId": "g", "name": "Vardag", "slug": "vardag"},
+    {"id": "t3", "groupId": "g", "name": "Viktväktarna", "slug": "viktvaktarna"},
+]
+ME = "u-mcp"
 CATS = [{"id": "c1", "groupId": "g", "name": "Middag", "slug": "middag"}]
 RECIPE = {
     "id": "r1",
+    "userId": "u-someone-else",
     "name": "Testgryta",
     "slug": "testgryta",
     "description": "d",
@@ -32,14 +37,19 @@ RECIPE = {
 class FakeMealie:
     def __init__(self):
         self.calls: list[tuple[str, str, object]] = []
+        self.requests: list[httpx.Request] = []
         self.created_tags: list[str] = []
+        self.deleted: list[str] = []
+        self.by_url: list[dict] = []
+        self.stub_next_import = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         body = json.loads(request.content) if request.content else None
         self.calls.append((request.method, path, body))
+        self.requests.append(request)
         if path == "/api/users/self":
-            return httpx.Response(200, json={"username": "mcp", "admin": False})
+            return httpx.Response(200, json={"id": ME, "username": "mcp", "admin": False})
         if path == "/api/organizers/tags" and request.method == "GET":
             return httpx.Response(
                 200,
@@ -65,17 +75,49 @@ class FakeMealie:
         if path == "/api/organizers/categories":
             return httpx.Response(200, json={"items": CATS})
         if path == "/api/recipes" and request.method == "GET":
+            if request.url.params.get("queryFilter"):
+                return httpx.Response(200, json={"items": self.by_url, "total": len(self.by_url)})
             return httpx.Response(
                 200, json={"items": [RECIPE], "total": 1, "page": 1, "total_pages": 1}
             )
         if path == "/api/recipes" and request.method == "POST":
             return httpx.Response(201, json=body["name"].lower())
+        if path == "/api/recipes/create/url":
+            return httpx.Response(201, json="stub" if self.stub_next_import else "imported")
         if path.startswith("/api/recipes/") and request.method == "GET":
             slug = path.rsplit("/", 1)[1]
             if slug == "missing":
                 return httpx.Response(404, json={"detail": "Not found"})
+            if slug == "stub":
+                return httpx.Response(
+                    200,
+                    json={
+                        **RECIPE,
+                        "slug": slug,
+                        "name": "No Recipe Name Found - 689df663",
+                        "userId": ME,
+                        "recipeIngredient": [{"note": "Could not detect ingredients"}],
+                    },
+                )
+            if slug == "mine":
+                return httpx.Response(200, json={**RECIPE, "slug": slug, "userId": ME})
             return httpx.Response(200, json={**RECIPE, "slug": slug})
         if path.startswith("/api/recipes/") and request.method == "PUT":
+            return httpx.Response(200, json=body)
+        if path.startswith("/api/recipes/") and request.method == "DELETE":
+            self.deleted.append(path.rsplit("/", 1)[1])
+            return httpx.Response(200, json=RECIPE)
+        if path.startswith("/api/households/mealplans/") and request.method == "GET":
+            return httpx.Response(404, json={"detail": {"message": "Not found.", "error": True}})
+        if path == "/api/households/shopping/items" and request.method == "DELETE":
+            self.deleted += request.url.params.get_list("ids")
+            return httpx.Response(200, json={"message": "", "error": False})
+        if path.startswith("/api/households/shopping/items/") and request.method == "GET":
+            item_id = path.rsplit("/", 1)[1]
+            if not item_id.startswith("0000"):
+                return httpx.Response(404, json={"detail": {"message": "Not found."}})
+            return httpx.Response(200, json={"id": item_id, "checked": False, "display": "mjölk"})
+        if path.startswith("/api/households/shopping/items/") and request.method == "PUT":
             return httpx.Response(200, json=body)
         if path == "/api/households/mealplans" and request.method == "GET":
             return httpx.Response(
@@ -109,7 +151,10 @@ class FakeMealie:
                 json={
                     "id": "l1",
                     "name": "Veckohandling",
-                    "listItems": [{"id": "i1", "checked": False, "display": "mjölk"}],
+                    "listItems": [
+                        {"id": "i1", "checked": False, "display": "mjölk"},
+                        {"id": "i2", "checked": True, "display": "ägg"},
+                    ],
                 },
             )
         if path == "/api/households/shopping/items/create-bulk":

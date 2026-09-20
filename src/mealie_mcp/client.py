@@ -40,7 +40,18 @@ class MealieConfigError(RuntimeError):
 
 
 def _clean(detail: Any, limit: int = 400) -> str:
-    text = detail if isinstance(detail, str) else repr(detail)
+    """Error detail as one short line. FastAPI's 422 body is a list of
+    Pydantic error dicts; a model only needs "where: what", not the ctx."""
+    if isinstance(detail, list) and detail and all(isinstance(d, dict) for d in detail):
+        parts = []
+        for d in detail:
+            loc = ".".join(str(x) for x in d.get("loc") or [] if x not in ("body", "path", "query"))
+            parts.append(f"{loc}: {d.get('msg')}" if loc else str(d.get("msg")))
+        text = "; ".join(parts)
+    elif isinstance(detail, dict) and isinstance(detail.get("message"), str):
+        text = detail["message"]
+    else:
+        text = detail if isinstance(detail, str) else repr(detail)
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -137,6 +148,13 @@ class MealieClient:
     def whoami(self) -> dict[str, Any]:
         return self.get("/api/users/self")
 
+    @property
+    def user_id(self) -> str:
+        """Id of the Mealie user behind the token (cached; it cannot change)."""
+        if not hasattr(self, "_user_id"):
+            self._user_id = str(self.whoami()["id"])
+        return self._user_id
+
     # -- recipes ----------------------------------------------------------
 
     def search_recipes(
@@ -168,6 +186,15 @@ class MealieClient:
 
     def get_recipe(self, slug: str) -> dict[str, Any]:
         return self.get(f"/api/recipes/{slug}")
+
+    def recipes_by_source_url(self, url: str) -> list[dict[str, Any]]:
+        """Recipes whose orgURL equals `url` (with or without trailing slash)."""
+        variants = {url, url.rstrip("/"), url.rstrip("/") + "/"}
+        clause = " OR ".join(f'orgURL = "{v}"' for v in sorted(variants))
+        return self.get("/api/recipes", queryFilter=clause, perPage=10).get("items", [])
+
+    def delete_recipe(self, slug: str) -> None:
+        self.request("DELETE", f"/api/recipes/{slug}")
 
     def create_recipe(self, name: str) -> str:
         """Create an empty recipe; Mealie returns the new slug."""
@@ -261,8 +288,15 @@ class MealieClient:
     def create_shopping_items(self, items: list[dict[str, Any]]) -> Any:
         return self.request("POST", "/api/households/shopping/items/create-bulk", json=items)
 
+    def shopping_item(self, item_id: str) -> dict[str, Any]:
+        return self.get(f"/api/households/shopping/items/{item_id}")
+
     def update_shopping_item(self, item_id: str, item: dict[str, Any]) -> Any:
         return self.request("PUT", f"/api/households/shopping/items/{item_id}", json=item)
+
+    def delete_shopping_items(self, item_ids: list[str]) -> None:
+        if item_ids:
+            self.request("DELETE", "/api/households/shopping/items", params={"ids": item_ids})
 
 
 _client: MealieClient | None = None

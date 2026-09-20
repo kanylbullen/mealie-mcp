@@ -13,8 +13,9 @@ from mealie_mcp.client import get_client
 @mcp.tool(annotations={"readOnlyHint": True})
 @requires_scope(SCOPE_READ)
 def list_categories_and_tags() -> dict[str, Any]:
-    """All recipe categories and tags in use. Prefer these names when creating
-    or updating recipes; only create new ones when nothing fits."""
+    """All recipe categories and tags in use. These names work as-is in
+    `search_recipes` filters and in `create_recipe` / `update_recipe`; only
+    create new ones when nothing fits."""
     client = get_client()
     return {
         "categories": sorted(c.get("name", "") for c in client.categories()),

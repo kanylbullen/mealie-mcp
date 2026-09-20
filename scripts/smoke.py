@@ -22,9 +22,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from fastmcp import Client  # noqa: E402
 
-import mealie_mcp.tools.mealplans  # noqa: E402,F401
 from mealie_mcp.app import mcp  # noqa: E402
 from mealie_mcp.client import get_client  # noqa: E402
+from mealie_mcp.tools import mealplans, organizers, recipes, shopping  # noqa: E402,F401
 
 TEST_NAME = "ZZ mealie-mcp smoke test"
 
@@ -47,6 +47,19 @@ async def main(write: bool, url: str | None):
         found = show(
             "search_recipes", await c.call_tool("search_recipes", {"query": "kyckling", "limit": 3})
         )
+        if cats["tags"]:
+            # display name (with å/ä/ö if any) must filter, not fall through to "everything"
+            by_tag = show(
+                "search_recipes(tags=name)",
+                await c.call_tool("search_recipes", {"tags": [cats["tags"][-1]], "limit": 1}),
+            )
+            unfiltered = await c.call_tool("search_recipes", {"limit": 1})
+            assert by_tag["total"] <= unfiltered.data["total"], "tag filter did not apply"
+            res = await c.call_tool(
+                "search_recipes", {"tags": ["finns-inte-xyz"]}, raise_on_error=False
+            )
+            assert res.is_error and "Unknown tag" in res.content[0].text, res.content
+            print("✓ search_recipes(unknown tag) -> error")
         if found["recipes"]:
             show(
                 "get_recipe", await c.call_tool("get_recipe", {"slug": found["recipes"][0]["slug"]})
@@ -155,19 +168,54 @@ async def main(write: bool, url: str | None):
                     "check_shopping_items",
                     await c.call_tool("check_shopping_items", {"item_ids": new_ids[:1]}),
                 )
-                for iid in new_ids:
-                    raw.request("DELETE", f"/api/households/shopping/items/{iid}")
-                print(f"  cleaned {len(new_ids)} shopping items")
+                res = await c.call_tool(
+                    "check_shopping_items", {"item_ids": ["not-a-uuid"]}, raise_on_error=False
+                )
+                assert res.is_error and "not a shopping item id" in res.content[0].text
+                print("✓ check_shopping_items(bad id) -> error")
+                show(
+                    "remove_shopping_items",
+                    await c.call_tool("remove_shopping_items", {"item_ids": new_ids[1:]}),
+                )
+                remaining = {i["id"] for i in raw.shopping_list(lid).get("listItems", [])}
+                assert not (set(new_ids[1:]) & remaining), "remove_shopping_items left items"
+                # the one ticked item is what clear_checked removes; anything the user had
+                # ticked before goes too, which is what that button means
+                show(
+                    "clear_checked_shopping_items",
+                    await c.call_tool("clear_checked_shopping_items", {"list_id_or_name": lid}),
+                )
+                remaining = {i["id"] for i in raw.shopping_list(lid).get("listItems", [])}
+                assert new_ids[0] not in remaining, "clear_checked left the ticked item"
             if url:
                 imp = show(
                     "create_recipe_from_url",
+                    await c.call_tool(
+                        "create_recipe_from_url", {"url": url, "allow_duplicate": True}
+                    ),
+                )
+                assert imp["created"] is True
+                dup = show(
+                    "create_recipe_from_url(again)",
                     await c.call_tool("create_recipe_from_url", {"url": url}),
                 )
-                raw.request("DELETE", f"/api/recipes/{imp['slug']}")
-                print("  cleaned imported recipe")
+                assert dup["created"] is False and imp["slug"] in dup["duplicate_of"]
+                show("delete_recipe", await c.call_tool("delete_recipe", {"slug": imp["slug"]}))
+            res = await c.call_tool(
+                "create_recipe_from_url",
+                {"url": "https://www.ica.se/recept/finns-inte-000000/"},
+                raise_on_error=False,
+            )
+            assert res.is_error and "No recipe found" in res.content[0].text, res.content
+            print("✓ create_recipe_from_url(404 page) -> error, nothing saved")
+            if found["recipes"] and found["recipes"][0]["slug"] != slug:
+                res = await c.call_tool(
+                    "delete_recipe", {"slug": found["recipes"][0]["slug"]}, raise_on_error=False
+                )
+                assert res.is_error and "not created through this server" in res.content[0].text
+                print("✓ delete_recipe(someone else's recipe) -> refused")
         finally:
-            raw.request("DELETE", f"/api/recipes/{slug}")
-            print("  cleaned test recipe")
+            show("delete_recipe", await c.call_tool("delete_recipe", {"slug": slug}))
 
 
 if __name__ == "__main__":

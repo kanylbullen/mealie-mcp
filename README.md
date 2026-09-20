@@ -7,17 +7,24 @@ claude.ai, Claude Desktop, Claude Code or any other MCP client.
 Runs as a single long-lived **Streamable HTTP** server with **OAuth 2.1** in front (any OIDC IdP;
 built and tested against Authentik), or over stdio for local use.
 
-## Tools (16)
+## Tools (19)
 
 | Area | Tools |
 |---|---|
-| Recipes | `search_recipes`, `get_recipe`, `create_recipe_from_url`, `create_recipe`, `update_recipe` |
+| Recipes | `search_recipes`, `get_recipe`, `create_recipe_from_url`, `create_recipe`, `update_recipe`, `delete_recipe` |
 | Meal plan | `get_mealplan`, `add_mealplan_entry`, `update_mealplan_entry`, `remove_mealplan_entry`, `add_random_mealplan_entry` |
-| Shopping | `list_shopping_lists`, `get_shopping_list`, `add_recipe_to_shopping_list`, `add_shopping_items`, `check_shopping_items` |
+| Shopping | `list_shopping_lists`, `get_shopping_list`, `add_recipe_to_shopping_list`, `add_shopping_items`, `check_shopping_items`, `remove_shopping_items`, `clear_checked_shopping_items` |
 | Organizers | `list_categories_and_tags` |
 
-Deliberately **not** included: deleting recipes, bulk imports, anything under `/api/admin`,
-backups, user management. Deleting is a rare, deliberate act that belongs in the web UI.
+Deliberately **not** included: bulk imports, anything under `/api/admin`, backups, user
+management. `delete_recipe` only removes recipes the server's own Mealie user created (its
+imports and text recipes — what a model can undo of its own doing); deleting anything else is a
+rare, deliberate act that belongs in the web UI.
+
+Designed so a model fails loudly rather than quietly: unknown tag/category names in
+`search_recipes` are an error (Mealie itself would return the whole library), importing a URL
+that is already in the library returns the existing recipe, a URL with no recipe on it saves
+nothing, and Mealie's Pydantic 422 bodies are compacted to `field: message`.
 
 Two scopes: `mealie:read` and `mealie:write` (write implies read). Scopes are checked inside
 every tool function, not just declared in metadata.
