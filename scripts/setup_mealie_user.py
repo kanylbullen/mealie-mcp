@@ -153,7 +153,8 @@ def main() -> None:
             },
         )
         print(
-            f"created user {created['username']} (id {created['id']}) in group={created['group']} household={created['household']}"
+            f"created user {created['username']} (id {created['id']}) "
+            f"in group={created['group']} household={created['household']}"
         )
 
     user_tok = req(

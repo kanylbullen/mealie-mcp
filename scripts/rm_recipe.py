@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Delete a recipe by slug (there is deliberately no MCP tool for this). Usage: rm_recipe.py <slug>"""
+"""Delete a recipe by slug (there is deliberately no MCP tool for this).
+
+Usage: rm_recipe.py <slug>
+"""
 
 import os
 import sys

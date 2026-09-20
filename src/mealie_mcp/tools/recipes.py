@@ -16,6 +16,7 @@ from mealie_mcp.client import MealieClient, MealieError, get_client
 from mealie_mcp.tools._shape import is_stub, recipe_detail, recipe_summary
 
 _MAX_PER_PAGE = 50
+_SKIPPED_HINT = "Not found; pick from list_categories_and_tags or pass create_missing_tags=true."
 
 
 # -- organizer / food / unit resolution --------------------------------------
@@ -325,7 +326,7 @@ def create_recipe(
     if skipped:
         out["skipped"] = {
             "categories_or_tags": skipped,
-            "hint": "Not found; pick from list_categories_and_tags or pass create_missing_tags=true.",
+            "hint": _SKIPPED_HINT,
         }
     if warnings:
         out["warnings"] = warnings
@@ -404,7 +405,7 @@ def update_recipe(
     if skipped:
         out["skipped"] = {
             "categories_or_tags": skipped,
-            "hint": "Not found; pick from list_categories_and_tags or pass create_missing_tags=true.",
+            "hint": _SKIPPED_HINT,
         }
     if warnings:
         out["warnings"] = warnings
