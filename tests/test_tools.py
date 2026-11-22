@@ -13,7 +13,7 @@ def test_search_and_get(fake):
     detail = recipes.get_recipe("testgryta")
     assert detail["ingredients"][0] == {"text": "2 dl grädde", "section": "Sås"}
     assert detail["instructions"] == [{"n": 1, "text": "Koka."}]
-    assert detail["url"] == "http://mealie.test/r/testgryta"
+    assert detail["url"] == "http://mealie.test/g/lugnet/r/testgryta"
 
 
 def test_create_recipe_reports_unknown_tags_instead_of_creating(fake):
@@ -243,6 +243,7 @@ def test_server_info_reports_build_and_mealie(fake, monkeypatch):
         "url": "http://mealie.test",
         "user": "mcp",
         "admin": False,
+        "group": {"name": "Lugnet", "slug": "lugnet", "source": "api"},
     }
     assert "token" not in json.dumps(out).lower()
 

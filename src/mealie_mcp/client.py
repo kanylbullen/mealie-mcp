@@ -11,6 +11,9 @@ One client, one Mealie API token. Configuration (environment):
                         vault), so no shell needs to copy secrets between names
     MEALIE_PUBLIC_URL   optional; the URL humans open in a browser, used for
                         links in tool results (defaults to MEALIE_URL)
+    MEALIE_GROUP_SLUG   optional; the group slug in recipe links
+                        (`/g/<group>/r/<slug>`). Defaults to the token user's
+                        group as reported by `GET /api/users/self`.
     MEALIE_TIMEOUT      seconds per request (default 30). URL imports get 3x
                         because Mealie fetches and possibly runs an LLM pass.
 
@@ -19,12 +22,15 @@ The client deliberately exposes only the endpoints the tools use.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 import httpx
 
 USER_AGENT = "mealie-mcp/0.1 (+https://github.com/kanylbullen/mealie-mcp)"
+
+log = logging.getLogger(__name__)
 
 
 class MealieError(RuntimeError):
@@ -62,6 +68,7 @@ class MealieClient:
         token: str,
         *,
         public_url: str | None = None,
+        group_slug: str | None = None,
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
     ):
@@ -69,6 +76,7 @@ class MealieClient:
             raise MealieConfigError("MEALIE_URL and MEALIE_TOKEN are required.")
         self.base_url = base_url.rstrip("/")
         self.public_url = (public_url or base_url).rstrip("/")
+        self._group_override = (group_slug or "").strip().strip("/") or None
         self.timeout = timeout
         self._http = httpx.Client(
             base_url=self.base_url,
@@ -92,6 +100,7 @@ class MealieClient:
             (src.get("MEALIE_URL") or "").strip(),
             token,
             public_url=(src.get("MEALIE_PUBLIC_URL") or "").strip() or None,
+            group_slug=(src.get("MEALIE_GROUP_SLUG") or "").strip() or None,
             timeout=float(src.get("MEALIE_TIMEOUT") or 30),
         )
 
@@ -136,8 +145,12 @@ class MealieClient:
         return self.request("GET", path, params=params)
 
     def recipe_url(self, slug: str) -> str:
-        """Browser URL of a recipe. Mealie's group route needs the group slug,
-        so `/r/<slug>` is used: it redirects to the right group when logged in."""
+        """Browser URL of a recipe: `/g/<group>/r/<slug>`. Current Mealie has
+        no group-less recipe route, so a link without the group 404s. Falls
+        back to `/r/<slug>` (older Mealie) only when no group slug is known."""
+        group = self.group_slug
+        if group:
+            return f"{self.public_url}/g/{group}/r/{slug}"
         return f"{self.public_url}/r/{slug}"
 
     # -- app --------------------------------------------------------------
@@ -154,6 +167,36 @@ class MealieClient:
         if not hasattr(self, "_user_id"):
             self._user_id = str(self.whoami()["id"])
         return self._user_id
+
+    @property
+    def group_slug(self) -> str | None:
+        """Group slug for recipe links: MEALIE_GROUP_SLUG if set, else the
+        token user's `groupSlug`, fetched once and cached with the client
+        (the token's group cannot change). None when neither is available;
+        a failed lookup is retried on the next call rather than cached."""
+        if self._group_override:
+            return self._group_override
+        if not hasattr(self, "_group_slug"):
+            try:
+                me = self.whoami()
+            except MealieError as exc:
+                log.warning("Group slug lookup failed, recipe links use /r/<slug>: %s", exc)
+                return None
+            slug = str(me.get("groupSlug") or "").strip() or None
+            if slug is None:
+                log.warning(
+                    "Mealie's /api/users/self has no groupSlug (older Mealie?); "
+                    "recipe links use /r/<slug>. Set MEALIE_GROUP_SLUG to override."
+                )
+            self._group_slug = slug
+        return self._group_slug
+
+    @property
+    def group_slug_source(self) -> str | None:
+        """Where `group_slug` came from: "env", "api" or None (fallback)."""
+        if self._group_override:
+            return "env"
+        return "api" if self.group_slug else None
 
     # -- recipes ----------------------------------------------------------
 

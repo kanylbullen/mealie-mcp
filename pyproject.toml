@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mealie-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for Mealie: recipes, meal plans and shopping lists over Streamable HTTP with OAuth 2.1"
 readme = "README.md"
 requires-python = ">=3.11"

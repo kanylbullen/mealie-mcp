@@ -15,7 +15,7 @@ built and tested against Authentik), or over stdio for local use.
 | Meal plan | `get_mealplan`, `add_mealplan_entry`, `update_mealplan_entry`, `remove_mealplan_entry`, `add_random_mealplan_entry` |
 | Shopping | `list_shopping_lists`, `get_shopping_list`, `add_recipe_to_shopping_list`, `add_shopping_items`, `check_shopping_items`, `remove_shopping_items`, `clear_checked_shopping_items` |
 | Organizers | `list_categories_and_tags` |
-| Server | `server_info` (build, Mealie version, caller scopes) |
+| Server | `server_info` (build, Mealie version and group, caller scopes) |
 
 Deliberately **not** included: bulk imports, anything under `/api/admin`, backups, user
 management. `delete_recipe` only removes recipes the server's own Mealie user created (its
@@ -75,6 +75,7 @@ The HTTP transport **refuses to start without OAuth** unless you set
 |---|---|
 | `MEALIE_URL` / `MEALIE_TOKEN` | Mealie base URL and API token (required) |
 | `MEALIE_PUBLIC_URL` | URL for links in results, if different from `MEALIE_URL` |
+| `MEALIE_GROUP_SLUG` | group in recipe links (`/g/<group>/r/<slug>`); default: the token user's `groupSlug` from `/api/users/self`. With neither, links fall back to `/r/<slug>` (older Mealie) and a warning is logged |
 | `MEALIE_INGREDIENT_PARSER` | `auto` (default: `openai` if Mealie has it, else `nlp`), `nlp`, `openai`, `brute` |
 | `MCP_TRANSPORT` | `stdio` (default) or `http` |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` / `MCP_HTTP_PATH` | bind address (default `127.0.0.1:8000/mcp`) |

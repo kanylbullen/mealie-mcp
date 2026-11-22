@@ -55,6 +55,11 @@ def server_info() -> dict[str, Any]:
             "url": client.public_url,
             "user": me.get("username"),
             "admin": bool(me.get("admin")),
+            "group": {
+                "name": me.get("group"),
+                "slug": client.group_slug,
+                "source": client.group_slug_source,
+            },
         }
     except MealieError as exc:
         out["mealie"] = {"error": str(exc)}

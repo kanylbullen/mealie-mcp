@@ -46,6 +46,8 @@ class FakeMealie:
         self.parsed: list[dict] = []
         self.created_foods: list[str] = []
         self.bulk_updated: list[dict] | None = None
+        # what /api/users/self adds about the group; empty = older Mealie
+        self.me_group: dict = {"group": "Lugnet", "groupSlug": "lugnet"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -53,7 +55,9 @@ class FakeMealie:
         self.calls.append((request.method, path, body))
         self.requests.append(request)
         if path == "/api/users/self":
-            return httpx.Response(200, json={"id": ME, "username": "mcp", "admin": False})
+            return httpx.Response(
+                200, json={"id": ME, "username": "mcp", "admin": False, **self.me_group}
+            )
         if path == "/api/organizers/tags" and request.method == "GET":
             return httpx.Response(
                 200,
